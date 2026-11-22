@@ -1,0 +1,27 @@
+name: Test Telegram nearest-change bot
+on:
+  push:
+    branches: [main, "bot/nearest-change-cards"]
+    paths:
+      - "cloudflare/telegram-alerts/**"
+      - ".github/workflows/test-telegram-alerts.yml"
+  pull_request:
+    paths:
+      - "cloudflare/telegram-alerts/**"
+      - ".github/workflows/test-telegram-alerts.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Validate Worker JS syntax
+        run: node --input-type=module --check < cloudflare/telegram-alerts/worker.js
+      - name: Test nearest-card selection and Telegram cleanup
+        run: node --test cloudflare/telegram-alerts/worker.test.mjs
