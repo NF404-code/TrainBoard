@@ -1,0 +1,11 @@
+name = "trainboard-alerts"
+main = "worker.js"
+compatibility_date = "2026-11-21"
+workers_dev = true
+
+[triggers]
+crons = ["*/2 * * * *"]
+
+[[kv_namespaces]]
+binding = "TRAINBOARD_STATE"
+id = "4bc8d93f7d4348caa701838e38efb774"
