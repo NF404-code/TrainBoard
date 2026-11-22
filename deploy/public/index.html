@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0c1019">
+  <meta name="description" content="TrainBoard: расписание поездов Leo Express и изменения прибытия">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="stylesheet" href="/app.css">
+  <title>TrainBoard · Leo Express</title>
+</head>
+<body>
+  <div class="app">
+    <header class="bar">
+      <a class="brand" href="/" aria-label="TrainBoard, главная"><span class="brand-icon">T</span><span>Train<span class="accent">Board</span></span></a>
+      <span class="mini">LEO EXPRESS</span>
+    </header>
+    <main>
+      <section class="hero">
+        <div class="eyebrow">РАСПИСАНИЕ ПОЕЗДОВ</div>
+        <h1>Прибытия <span class="accent">сегодня</span></h1>
+        <p id="today" class="muted">Загружаем дату…</p>
+        <div class="status-row">
+          <div class="state" id="state" role="status" aria-live="polite"><span class="dot"></span><span id="state-text">Подключение к источнику…</span></div>
+          <button id="refresh" type="button" aria-label="Обновить расписание">↻ Обновить</button>
+        </div>
+        <div class="meta"><span>Автообновление каждые 30 сек</span><span id="checked">Проверка: —</span></div>
+      </section>
+      <section class="section">
+        <div class="section-head"><h2>Поезда</h2><span id="counter">—</span></div>
+        <div class="cards" id="cards" aria-live="polite">
+          <div class="empty">Получаем подтверждённое расписание…</div>
+        </div>
+      </section>
+      <section class="notice">
+        <strong>Источник данных</strong>
+        <p>Информация поступает из TrainBoard. Если источник недоступен или сведения устарели, приложение сообщает об этом и не выдаёт старые данные за актуальные.</p>
+        <p>Обновление каждые 30 секунд работает, пока приложение открыто. Фоновые push-уведомления пока не включены.</p>
+      </section>
+    </main>
+    <footer>TrainBoard · независимая панель расписания · Европа/Варшава</footer>
+  </div>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
