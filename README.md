@@ -27,6 +27,14 @@ The six `web/` files were recovered from saved, indexed TrainBoard source text. 
 
 The app reads the stored public schedule snapshot from the current TrainBoard site and polls while active. **Reliable background push notifications are not implemented**; the local notification behavior depends on active polling.
 
+## Deployable Telegram Worker
+
+A separately testable Cloudflare Worker entry is now in repository root: `worker.js`, `wrangler.toml`, `package.json`, and `tests/worker.test.js`.
+
+Run `npm run check && npm test` locally (Node.js 22+). The code supports `/connect@assistantbratishka_bot`, monitors real-time changes every two minutes, and deletes the previous bot message after confirmed new delivery. Its public `GET /health` route omits tokens and chat IDs.
+
+**GitHub commits do not publish this Worker automatically.** Deployment requires a Cloudflare session or a scoped API token securely supplied to Wrangler. The pre-existing Cloudflare Worker secret `TELEGRAM_BOT_TOKEN`, KV binding `TRAINBOARD_STATE`, and cron trigger must be retained. No Cloudflare token is stored in the repository.
+
 ## Cloudflare Worker
 
 The Telegram worker uses runtime `env.TELEGRAM_BOT_TOKEN` and `env.TRAINBOARD_STATE` bindings. Provide credentials only in Cloudflare's secret/configuration system, **not in Git**. Verify the existing production binding names and storage type before deploying. This repo does not include a deployment configuration or secret values.
