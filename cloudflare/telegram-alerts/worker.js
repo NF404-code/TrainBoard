@@ -1,5 +1,5 @@
 // TrainBoard → Telegram. Read-only health route; no public actions or keys.
-const VERSION = '2.0.0';
+const VERSION = '2.1.0';
 const BOT = 'assistantbratishka_bot';
 const OWNER = 876976709;
 const PLAN = 'https://trainboard-freeman.patientbrownie8.chatgpt.site/api/schedule?stored=1';
@@ -426,8 +426,10 @@ function parseCommand(up, nowSec) {
   const m=up?.message;
   if (!m || m.from?.id!==OWNER || m.from?.is_bot || m.sender_chat || !['group','supergroup'].includes(m.chat?.type) || !Number.isSafeInteger(m.chat.id) || m.chat.id>=0 || !Number.isInteger(m.date) || nowSec-m.date>30*60 || m.date-nowSec>60) return null;
   const text=(m.text??'').trim().toLowerCase();
-  if (![`/trainboard_start@${BOT}`,`/trainboard_stop@${BOT}`].includes(text) || m.entities?.[0]?.type!=='bot_command' || m.entities[0].offset!==0) return null;
-  return {start:text.startsWith('/trainboard_start'), chat:{id:m.chat.id,thread:m.is_topic_message && Number.isInteger(m.message_thread_id)?m.message_thread_id:null}};
+  const startCommands = [`/trainboard_start@${BOT}`, `/connect@${BOT}`];
+  const stopCommands = [`/trainboard_stop@${BOT}`, `/disconnect@${BOT}`];
+  if (![...startCommands, ...stopCommands].includes(text) || m.entities?.[0]?.type!=='bot_command' || m.entities[0].offset!==0) return null;
+  return {start:startCommands.includes(text), chat:{id:m.chat.id,thread:m.is_topic_message && Number.isInteger(m.message_thread_id)?m.message_thread_id:null}};
 }
 
 const schema = `CREATE TABLE IF NOT EXISTS trainboard_worker_state (
