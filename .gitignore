@@ -1,0 +1,24 @@
+# Secrets and local settings
+.env
+.env.*
+!.env.example
+.dev.vars
+.dev.vars.*
+*.pem
+*.p12
+*.mobileprovision
+*.p8
+secrets.json
+credentials.json
+# Node / workers
+node_modules/
+.wrangler/
+dist/
+coverage/
+# Xcode / Swift
+.DS_Store
+.build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+.swiftpm/
