@@ -1,5 +1,5 @@
 // TrainBoard → Telegram. Read-only health route; no public actions or keys.
-const VERSION = '2.1.0';
+const VERSION = '2.2.0';
 const BOT = 'assistantbratishka_bot';
 const OWNER = 876976709;
 const PLAN = 'https://trainboard-freeman.patientbrownie8.chatgpt.site/api/schedule?stored=1';
@@ -45,7 +45,7 @@ function projectPlan(doc, day) {
     if (!ID_RE.test(t.tripId ?? '') || !/^\d{2,8}$/.test(t.number ?? '') || !/^\d{4}-\d{2}-\d{2}$/.test(t.serviceDate ?? '') || !Number.isInteger(t.stopSequence) || t.stopSequence < 0) throw new Fault('plan-incomplete');
     const staticClock = cleanClock(t.scheduledTime) ?? (t.delayMinutes == null ? cleanClock(t.time) : null);
     entries.push({ slot, station, number: String(t.number), tripId:t.tripId, service:t.serviceDate.replaceAll('-',''), sequence:t.stopSequence,
-      key:`${t.serviceDate}/${slot}/${t.number}`, planned:staticClock, planFresh:doc.status==='fresh', planTs,
+      key:`${t.serviceDate}/${slot}/${t.number}`, planned:staticClock, arrivalClock:cleanClock(t.targetArrival)??cleanClock(t.time), planFresh:doc.status==='fresh', planTs,
       platform:cleanTrack(t.platform), track:cleanTrack(t.track) });
   }
   return entries;
@@ -253,7 +253,7 @@ function updatePlans(s,entries,now) {
       footer:`План на ${clock(e.planTs)} по Варшаве`,caption:'Плановые данные TrainBoard. Не подтверждение фактического перрона или пути.'};
     const key=`plan/${e.slot}`;
     s.queue=s.queue.filter(q=>q.key!==key);
-    s.queue.push({key,kind:'plan',photo,ts:now});
+    s.queue.push({key,kind:'plan',photo,ts:now,arrivalClock:e.planned??e.arrivalClock});
   }
 }
 
@@ -372,10 +372,14 @@ function botApi(env, transport=fetch) {
 }
 const target = chat => chat.thread ? {chat_id:chat.id,message_thread_id:chat.thread} : {chat_id:chat.id};
 async function sendPhoto(api, chat, card) {
+  // Always send exactly one rendered change card, never a digest or status message.
+  if (!card || Array.isArray(card)) throw new Fault('invalid-single-card');
   const f=new FormData();
   for(const [k,v] of Object.entries(target(chat))) f.set(k,String(v));
-  const cards=Array.isArray(card)?card:[card];
-  f.set('caption',cards.length===1?cards[0].caption:`${ORIGIN}\n${cards.some(c=>c.caption.startsWith('Плановые данные'))?'Плановые изменения не являются подтверждением фактического перрона или пути.':''}`);
+  const caption=[`🚆 ${card.heading}`,card.train,card.station,
+    ...(card.rows??[]).map(([name,value])=>`${name}: ${value}`),card.footer,card.caption]
+    .filter(Boolean).join('\n').slice(0,1000);
+  f.set('caption',caption);
   f.set('photo',await pngCard(card),'trainboard.png');
   return confirmedMessage(await api('sendPhoto',f),chat);
 }
@@ -519,9 +523,7 @@ async function handlePairing(api,s,save,now) {
     if(!command) continue;
     if(s.chat&&!sameChat(s.chat,command.chat)) continue;
     if(command.start&&!s.enabled) {
-      // Remember the command before sending so a network crash does not duplicate a test.
-      await save(true);
-      const sent=await sendPhoto(api,command.chat,TEST);
+      // Pairing is silent: only real, confirmed schedule changes produce cards.
       s.chat=command.chat;
       s.enabled=true;
       s.day=null;
@@ -530,14 +532,13 @@ async function handlePairing(api,s,save,now) {
       s.queue=[];
       s.problem=null;
       s.feed=null;
-      await recordDelivery(api,s,save,s.chat,sent,now);
+      await save(true);
       return true;
     } else if(!command.start&&s.enabled) {
+      // Disconnect silently; no test or "stopped" message in the group.
       s.enabled=false;
       s.queue=[];
       await save(true);
-      const sent=confirmedMessage(await api('sendMessage',{...target(s.chat),text:'TrainBoard: уведомления остановлены.'}),s.chat);
-      await recordDelivery(api,s,save,s.chat,sent,now);
       return true;
     }
   }
@@ -586,12 +587,47 @@ async function getLive(s,entries,now,transport) {
     if (change&&Object.values(change).some(Boolean)) {
       // Replace only queued, unsent alerts for the same train with the latest observed state.
       s.queue=s.queue.filter(q=>q.key!==key);
-      s.queue.push({key,kind:'live',photo:cardFor(entry,old,value,change,f.timestamp),ts:f.timestamp});
+      s.queue.push({key,kind:'live',photo:cardFor(entry,old,value,change,f.timestamp),ts:f.timestamp,arrivalClock:merged.expected??entry.planned??entry.arrivalClock});
     } else if(!old && (['cancelled','skipped'].includes(value.status)||value.delay>0)) {
-      s.queue.push({key,kind:'live',photo:cardFor(entry,{},value,{status:value.status!=='scheduled',delay:value.delay>0},f.timestamp),ts:f.timestamp});
+      s.queue.push({key,kind:'live',photo:cardFor(entry,{},value,{status:value.status!=='scheduled',delay:value.delay>0},f.timestamp),ts:f.timestamp,arrivalClock:value.expected??entry.planned??entry.arrivalClock});
     }
   }
   s.feed={key,ts:f.timestamp,etag:response.headers.get('ETag')?.slice(0,200)??null};
+}
+
+// Never notify about a past train or a feed that was not recently confirmed.
+// Compare within the current Warsaw service date; ties prefer the live alert.
+function selectNearestAlert(queue,now) {
+  const parse = value => typeof value==='string' && /^\d{2}:\d{2}$/.test(value)
+    ? Number(value.slice(0,2))*60+Number(value.slice(3)) : null;
+  const current=parse(clock(now));
+  if (current===null) return null;
+  const candidates=(queue??[]).filter(q=>q?.photo &&
+    (q.kind==='live'||q.kind==='plan') &&
+    Number.isFinite(q.ts) && now-q.ts<=STALE && now-q.ts>=-120)
+    .map(q=>({q,minutes:parse(q.arrivalClock)}))
+    .filter(x=>x.minutes!==null && x.minutes>=current-30)
+    .sort((a,b)=>Math.max(0,a.minutes-current)-Math.max(0,b.minutes-current)
+      || Number(b.q.kind==='live')-Number(a.q.kind==='live')
+      || b.q.ts-a.q.ts);
+  return candidates[0]?.q??null;
+}
+
+// Telegram cannot delete messages older than 48 h. Expire our own old photo
+// at 47 h even when no later train change has appeared.
+async function expireOwnCard(api,s,now) {
+  const old=s.ownMessage;
+  if (!old || !s.chat || !sameChat(old.chat,s.chat) || now-old.at<47*3600 || now-old.at>=48*3600)return;
+  if (s.tgBackoff>now || !Number.isSafeInteger(old.id) || old.id<=0)return;
+  try {
+    const ok=await api('deleteMessage',{chat_id:s.chat.id,message_id:old.id});
+    if(ok!==true)throw new Fault('telegram-delete-unconfirmed');
+    s.ownMessage=null;
+    s.cleanupError=null;
+  } catch(e) {
+    s.cleanupError=safe(e,'telegram-delete-unconfirmed');
+    if(s.cleanupError==='telegram-rate-limit')s.tgBackoff=now+e.retry;
+  }
 }
 
 async function step(s,save,env,now,transport=fetch) {
@@ -614,6 +650,7 @@ async function step(s,save,env,now,transport=fetch) {
   // Only an explicit command from the owner in a group/topic can enable delivery.
   try {
     await cleanupPrevious(api,s,now);
+    await expireOwnCard(api,s,now);
     if(await handlePairing(api,s,save,now)){s.pairingError=null;await save();return;}
     if(!(s.tgBackoff>now)&&(s.enabled||s.pairingError!=='telegram-chat-rejected'))s.pairingError=null;
   }
@@ -636,33 +673,32 @@ async function step(s,save,env,now,transport=fetch) {
     await getLive(s,entries,now,transport);
     s.problem=null;
     s.dataStatus=planFresh?'fresh':'live-fresh-saved-plan';
-    s.queue=s.queue.filter(q=>q.photo&&q.kind!=='outage'&&now-q.ts<=STALE&&(q.kind!=='plan'||planFresh));
+    s.queue=s.queue.filter(q=>q.photo&&['live','plan'].includes(q.kind)&&now-q.ts<=STALE&&(q.kind!=='plan'||planFresh));
   } catch(e) {
     const reason=safe(e,'feed-unavailable');
     s.dataStatus=planOk?'live-unavailable':'plan-unavailable';
-    s.queue=s.queue.filter(q=>q.kind==='outage'||(planFresh&&q.kind==='plan'&&now-q.ts<=STALE));
-    if(s.problem!==reason){
-      s.queue=s.queue.filter(q=>q.kind!=='outage');
-      s.queue.push({key:'outage',kind:'outage',photo:problemCard(!planOk,now),ts:now});
-    } else for(const q of s.queue)if(q.kind==='outage'){q.photo=problemCard(!planOk,now);q.ts=now;}
+    // Fail closed: outages, stale feeds and incomplete schedules are not alerts.
+    // Drop unsent events instead of delivering them when confidence is lost.
+    s.queue=[];
     s.problem=reason;
     console.warn(reason);
   }
   await save();
   if(s.tgBackoff>now || !s.queue.length) return;
-  // One photo with all simultaneous changes: the earlier message is replaced,
-  // but an alert for one train cannot erase another change in the same check.
-  const alerts=s.queue.splice(0,10).filter(q=>q.photo);
-  if(!alerts.length){await save();return;}
-  await save(true); // Claim before delivery; an unknown response is not retried.
+  const nearest=selectNearestAlert(s.queue,now);
+  // Discard other simultaneous candidates: exactly one nearest card per check.
+  // No old or unrelated events should leak into the next notification.
+  s.queue=[];
+  if(!nearest){await save();return;}
+  await save(true); // Claim before delivery; unknown API responses are not blindly retried.
   try {
-    const sent=await sendPhoto(api,s.chat,alerts.map(q=>q.photo));
+    const sent=await sendPhoto(api,s.chat,nearest.photo);
     await recordDelivery(api,s,save,s.chat,sent,now);
   } catch(e) {
     s.deliveryError=safe(e,'delivery-error');
     if(s.deliveryError==='telegram-rate-limit'||s.deliveryError==='telegram-chat-rejected') {
       s.tgBackoff=now+(s.deliveryError==='telegram-rate-limit'?e.retry:120);
-      s.queue.unshift(...alerts);
+      s.queue.push(nearest);
     }
     console.warn(s.deliveryError);
     await save(true);
@@ -708,7 +744,7 @@ export default {
   }
 };
 
-export {readFeed,projectPlan,cardFor,pngCard,observed,match,parseCommand,step,withState,health,TEST};
+export {readFeed,projectPlan,cardFor,pngCard,observed,match,parseCommand,step,withState,health,TEST,selectNearestAlert,expireOwnCard,recordDelivery,handlePairing};
 
 /* Embedded glyph licensing
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
