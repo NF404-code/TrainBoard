@@ -80,3 +80,15 @@ test('old bot card is removed before Telegram 48h deletion deadline',async()=>{
   assert.equal(called,1);
   assert.equal(s.ownMessage,null);
 });
+
+test('one change is rendered as a valid PNG card',async()=>{
+  const png=await worker.pngCard({
+    heading:'ИЗМЕНЕНИЕ ПРИБЫТИЯ',train:'Поезд: 3114',station:'Warszawa Wschodnia',
+    rows:[['По расписанию','18:43'],['Ожидается','18:51'],['Задержка','+8 мин']],
+    footer:'Данные из TrainBoard',caption:'Проверено'
+  });
+  assert.equal(png.type,'image/png');
+  const bytes=new Uint8Array(await png.arrayBuffer());
+  assert.ok(bytes.length>100);
+  assert.deepEqual(Array.from(bytes.slice(0,8)),[137,80,78,71,13,10,26,10]);
+});
