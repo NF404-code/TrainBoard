@@ -1,0 +1,45 @@
+name: Validate TrainBoard Pages preview
+on:
+  push:
+    branches: [main]
+    paths:
+      - "deploy/**"
+      - ".github/workflows/validate-preview.yml"
+  pull_request:
+    paths:
+      - "deploy/**"
+      - ".github/workflows/validate-preview.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check JavaScript syntax
+        run: |
+          node --check deploy/public/app.js
+          node --check deploy/public/sw.js
+          node --input-type=module --check < deploy/functions/api/schedule.js
+      - name: Verify static output and routing
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          public=Path('deploy/public')
+          required=['index.html','app.js','app.css','manifest.webmanifest','sw.js','icon.svg','_routes.json','_headers']
+          missing=[x for x in required if not (public/x).is_file()]
+          assert not missing, f'Missing: {missing}'
+          manifest=json.loads((public/'manifest.webmanifest').read_text())
+          assert manifest['start_url']=='/' and manifest['display']=='standalone'
+          routes=json.loads((public/'_routes.json').read_text())
+          assert routes['include']==['/api/*']
+          assert Path('deploy/functions/api/schedule.js').is_file()
+          assert 'id="cards"' in (public/'index.html').read_text()
+          print('Static files and Functions route ready')
+          PY
