@@ -12,6 +12,7 @@ function fail(message) {
 export async function onRequestGet() {
   try {
     const upstream = await fetch(UPSTREAM,{
+      method:'GET',
       headers:{Accept:'application/json'},
       redirect:'manual',
       signal:AbortSignal.timeout(12000)
