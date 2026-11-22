@@ -43,3 +43,5 @@ jobs:
           assert 'id="cards"' in (public/'index.html').read_text()
           print('Static files and Functions route ready')
           PY
+      - name: Test read-only Cloudflare proxy
+        run: node deploy/tests/proxy.test.mjs
