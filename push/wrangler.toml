@@ -1,0 +1,13 @@
+name = "trainboard-web-push"
+main = "worker.js"
+compatibility_date = "2026-11-23"
+workers_dev = true
+
+[triggers]
+crons = ["*/2 * * * *"]
+
+# Create a dedicated KV namespace and replace this placeholder before deploy.
+# Never point this at the Telegram worker's KV namespace.
+# [[kv_namespaces]]
+# binding = "PUSH_STATE"
+# id = "YOUR_KV_NAMESPACE_ID"
