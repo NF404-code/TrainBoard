@@ -626,7 +626,11 @@ async function step(s,save,env,now,transport=fetch) {
   if(!s.enabled) return;
   const day=dayInWarsaw(now*1000);
   s.last??={};s.queue??=[];s.planLast??={};
-  if(s.day!==day){s.day=day;s.last={};s.planLast={};s.queue=[];s.feed=null;s.problem=null;}
+  if(s.day!==day){
+    // An ongoing source outage is not a new alert at midnight.
+    // Keep its state while resetting date-specific train snapshots.
+    s.day=day;s.last={};s.planLast={};s.queue=[];s.feed=null;
+  }
   let planOk=false,planFresh=false;
   s.dataCheckedAt=now;
   try {
