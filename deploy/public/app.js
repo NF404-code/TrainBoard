@@ -116,3 +116,90 @@ document.addEventListener('visibilitychange',()=>{if(!document.hidden) void load
 setInterval(()=>{if(!document.hidden) void load()},REFRESH_MS);
 if('serviceWorker' in navigator) window.addEventListener('load',()=>{void navigator.serviceWorker.register('/sw.js').catch(()=>{})});
 void load();
+
+
+// Persist the choice per browser. Never ask for permission on page load.
+// A user who declined is not re-prompted: they must explicitly click Enable.
+const pushToggle = $('#push-toggle');
+const pushStatus = $('#push-status');
+const PUSH_CHOICE_KEY = 'trainboard-push-choice-v1';
+const pushChoice = () => {
+  try { return localStorage.getItem(PUSH_CHOICE_KEY) || 'unset'; } catch { return 'unset'; }
+};
+const rememberPush = value => {
+  try { localStorage.setItem(PUSH_CHOICE_KEY,value); } catch { /* private storage */ }
+};
+const pushReady = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window && window.isSecureContext;
+const decodeVapid = value => {
+  const base64 = value.replace(/-/g,'+').replace(/_/g,'/');
+  const bytes = atob(base64.padEnd(Math.ceil(base64.length/4)*4,'='));
+  return Uint8Array.from(bytes,c=>c.charCodeAt(0));
+};
+async function pushConfig() {
+  const response = await fetch('/api/push/config',{cache:'no-store'});
+  if (!response.ok) throw new Error('Сервер push не подключён');
+  const value = await response.json();
+  if (!value?.publicKey || typeof value.publicKey !== 'string') throw new Error('Ключ push отсутствует');
+  return value;
+}
+async function pushRequest(endpoint, subscription) {
+  const response = await fetch('/api/push/'+endpoint,{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(subscription),cache:'no-store'
+  });
+  if (!response.ok) throw new Error('Не удалось сохранить подписку на сервере');
+}
+async function refreshPushUI() {
+  if (!pushReady()) {
+    pushStatus.textContent='Push недоступен в этом браузере. На iPhone откройте сайт, добавленный на экран «Домой».';
+    pushToggle.disabled=true;pushToggle.textContent='Недоступно';return;
+  }
+  const choice=pushChoice();
+  const permission=Notification.permission;
+  const registration=await navigator.serviceWorker.ready;
+  const subscription=await registration.pushManager.getSubscription();
+  const active=choice==='on' && permission==='granted' && !!subscription;
+  pushToggle.disabled=false;
+  pushToggle.textContent=active?'Выключить':'Включить';
+  if(active)pushStatus.textContent='Разрешено на устройстве. Проверяем сервер…';
+  else if(permission==='denied')pushStatus.textContent='Браузер заблокировал уведомления. Измените разрешение в настройках устройства.';
+  else if(choice==='off')pushStatus.textContent='Вы выключили уведомления. Выбор сохранён.';
+  else pushStatus.textContent='Уведомления выключены. Включение только по вашему выбору.';
+  if(active) {
+    try {
+      const cfg=await pushConfig();
+      await pushRequest('subscribe',subscription.toJSON());
+      pushStatus.textContent='Подписка сохранена на сервере. Push работает без открытой страницы.';
+    } catch {
+      pushStatus.textContent='Разрешение есть, но сервер push недоступен. Фоновые уведомления пока не работают.';
+    }
+  }
+}
+pushToggle?.addEventListener('click',async()=>{
+  pushToggle.disabled=true;
+  try {
+    const registration=await navigator.serviceWorker.ready;
+    const subscription=await registration.pushManager.getSubscription();
+    if(pushChoice()==='on' && subscription) {
+      // If server removal fails, do not leave an active browser subscription.
+      await pushRequest('unsubscribe',subscription.toJSON()).catch(()=>{});
+      await subscription.unsubscribe();
+      rememberPush('off');
+    } else {
+      // Do not trigger a browser permission prompt unless server is configured.
+      const {publicKey}=await pushConfig();
+      if(Notification.permission==='denied')throw new Error('Разрешение заблокировано в настройках браузера');
+      const permission=Notification.permission==='granted'?'granted':await Notification.requestPermission();
+      if(permission!=='granted') {rememberPush('off');throw new Error('Разрешение не предоставлено');}
+      const next=subscription || await registration.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:decodeVapid(publicKey)});
+      try {await pushRequest('subscribe',next.toJSON());}
+      catch(e){if(!subscription)await next.unsubscribe().catch(()=>{});throw e;}
+      rememberPush('on');
+    }
+  } catch(e) {
+    pushStatus.textContent=e instanceof Error?e.message:'Ошибка настройки push';
+  } finally {
+    await refreshPushUI().catch(()=>{pushToggle.disabled=false;});
+  }
+});
+if(pushToggle) window.addEventListener('load',()=>{void refreshPushUI().catch(()=>{pushStatus.textContent='Не удалось проверить уведомления';pushToggle.disabled=false;pushToggle.textContent='Включить';})});
