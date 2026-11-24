@@ -1,5 +1,5 @@
 // TrainBoard → Telegram. Read-only health route; no public actions or keys.
-const VERSION = '2.1.0';
+const VERSION = '2.1.1';
 const BOT = 'assistantbratishka_bot';
 const OWNER = 876976709;
 const PLAN = 'https://trainboard-freeman.patientbrownie8.chatgpt.site/api/schedule?stored=1';
@@ -626,7 +626,7 @@ async function step(s,save,env,now,transport=fetch) {
   if(!s.enabled) return;
   const day=dayInWarsaw(now*1000);
   s.last??={};s.queue??=[];s.planLast??={};
-  if(s.day!==day){s.day=day;s.last={};s.planLast={};s.queue=[];s.feed=null;s.problem=null;}
+  if(s.day!==day){s.day=day;s.last={};s.planLast={};s.queue=s.queue.filter(q=>q.kind==='outage');s.feed=null;}
   let planOk=false,planFresh=false;
   s.dataCheckedAt=now;
   try {
