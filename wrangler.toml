@@ -3,9 +3,12 @@ main = "worker.js"
 compatibility_date = "2026-11-21"
 workers_dev = true
 
+# Cron is intentionally disabled until the Telegram secret is securely installed
+# and the previous worker is stopped (or a separate bot is used).
 [triggers]
-crons = ["*/2 * * * *"]
+crons = []
 
-[[kv_namespaces]]
+[[d1_databases]]
 binding = "TRAINBOARD_STATE"
-id = "4bc8d93f7d4348caa701838e38efb774"
+database_name = "trainboard-alerts-state"
+database_id = "a53ea7da-81a8-47bf-8039-a00baa0d412e"
