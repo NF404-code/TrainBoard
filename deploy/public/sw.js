@@ -1,4 +1,4 @@
-const CACHE='trainboard-preview-shell-v2';
+const CACHE='trainboard-preview-shell-v3';
 const SHELL=['/','/index.html','/app.css','/app.js','/icon.svg','/manifest.webmanifest'];
 self.addEventListener('install',event=>{
   event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(SHELL)).then(()=>self.skipWaiting()));
@@ -6,13 +6,13 @@ self.addEventListener('install',event=>{
 self.addEventListener('activate',event=>{
   event.waitUntil(Promise.all([
     self.clients.claim(),
-    caches.keys().then(keys=>Promise.all(keys.filter(key=>key!==CACHE).map(key=>caches.delete(key))))
+    caches.keys().then(keys=>Promise.all(keys.filter(key=>key.startsWith('trainboard-preview-shell-')&&key!==CACHE).map(key=>caches.delete(key))))
   ]));
 });
 self.addEventListener('fetch',event=>{
   const url=new URL(event.request.url);
   if (event.request.method!=='GET'||url.origin!==self.location.origin||url.pathname.startsWith('/api/')) return;
-  event.respondWith(fetch(event.request).catch(()=>caches.match(event.request).then(r=>r||caches.match('/index.html'))));
+  event.respondWith(fetch(event.request).catch(async()=> (await caches.match(event.request)) || (event.request.mode==='navigate' ? (await caches.match('/index.html')) : null) || Response.error()));
 });
 
 self.addEventListener('push', event => {

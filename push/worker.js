@@ -72,8 +72,8 @@ async function deliver(env,s,notice){
 }
 function normalizeTrain(t){
   if(!t||typeof t!=='object'||!t.slotId)return null;
-  const result={id:String(t.slotId),number:typeof t.number==='string'?t.number:null,
-    time:typeof t.time==='string'?t.time:null,
+  const result={id:String(t.slotId),number:typeof t.number==='string'||typeof t.number==='number'?String(t.number):null,
+    time:typeof t.time==='string'?t.time:(typeof t.targetArrival==='string'?t.targetArrival:null),
     delay:Number.isFinite(t.delayMinutes)?t.delayMinutes:null,
     platform:t.platform==null?null:String(t.platform),
     track:t.track==null?null:String(t.track),
@@ -102,7 +102,7 @@ async function checkSchedule(env){
   const raw=await res.text();
   if(raw.length>1000000)throw new Error('schedule-too-large');
   const data=JSON.parse(raw),sn=data?.snapshot;
-  if(data.fromStorage!==true||data.status!=='fresh'||sn?.date!==day()||!Array.isArray(sn.trains))throw new Error('schedule-not-fresh');
+  if(data.fromStorage!==true||data.status!=='fresh'||sn?.date!==day()||sn.realtimeStatus!=='fresh'||!Array.isArray(sn.trains))throw new Error('schedule-not-fresh');
   const checked=Date.parse(sn.realtimeCheckedAt||sn.checkedAt);
   if(!Number.isFinite(checked)||Math.abs(Date.now()-checked)>10*60*1000)throw new Error('schedule-check-overdue');
   const next={day:sn.date,trains:sn.trains.map(normalizeTrain).filter(Boolean)};

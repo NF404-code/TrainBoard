@@ -4,10 +4,12 @@ on:
     branches: [main]
     paths:
       - "deploy/**"
+      - "push/**"
       - ".github/workflows/validate-preview.yml"
   pull_request:
     paths:
       - "deploy/**"
+      - "push/**"
       - ".github/workflows/validate-preview.yml"
   workflow_dispatch:
 permissions:
@@ -45,3 +47,21 @@ jobs:
           PY
       - name: Test read-only Cloudflare proxy
         run: node deploy/tests/proxy.test.mjs
+
+      - name: Check Web Push and proxy syntax
+        run: |
+          node --check push/worker.js
+          node --check 'deploy/functions/api/push/[[path]].js'
+      - name: Test Web Push train normalization and change detection
+        run: |
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import {normalizeTrain,changesBetween} from './push/worker.js';
+          const train=normalizeTrain({slotId:'early',number:123,targetArrival:'06:30',delayMinutes:0});
+          assert.equal(train.number,'123');
+          assert.equal(train.time,'06:30');
+          const baseline={day:'2026-11-24',trains:[train]};
+          assert.deepEqual(changesBetween(baseline,baseline),[]);
+          assert.equal(changesBetween(baseline,{...baseline,trains:[{...train,delay:5}]}).length,1);
+          assert.deepEqual(changesBetween(baseline,{...baseline,day:'2026-11-25'}),[]);
+          JS
