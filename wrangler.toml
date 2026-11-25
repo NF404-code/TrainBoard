@@ -3,10 +3,9 @@ main = "worker.js"
 compatibility_date = "2026-11-21"
 workers_dev = true
 
-# Cron is intentionally disabled until the Telegram secret is securely installed
-# and the previous worker is stopped (or a separate bot is used).
+# Server-side polling every two minutes.
 [triggers]
-crons = []
+crons = ["*/2 * * * *"]
 
 [[d1_databases]]
 binding = "TRAINBOARD_STATE"
