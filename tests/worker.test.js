@@ -97,3 +97,30 @@ test('ongoing outage does not send a second card after midnight', async () => {
   assert.equal(sends, 0);
   assert.equal(s.queue.length, 0);
 });
+
+
+test('health distinguishes absent and malformed Telegram credentials', async () => {
+  const binding = { get: async () => ({}) };
+  for (const [token, expected] of [[undefined, 'telegram-secret-missing'], ['not-a-token', 'telegram-secret-invalid-format']]) {
+    const res = await worker.fetch(new Request('https://example.test/health'), { TRAINBOARD_STATE: binding, TELEGRAM_BOT_TOKEN: token });
+    assert.equal((await res.json()).status, expected);
+  }
+});
+
+test('getMe distinguishes rejected credentials from uncertain message delivery', async () => {
+  const s = {};
+  await step(s, async () => {}, { TELEGRAM_BOT_TOKEN: '12345:abcdefghijklmnopqrstuvwxy' }, tick, async (url, options) => {
+    assert.match(String(url), /getMe$/);
+    assert.equal(options.method, 'GET');
+    return Response.json({ ok: false, error_code: 404 }, { status: 404 });
+  });
+  assert.equal(s.telegramError, 'telegram-secret-rejected');
+  assert.equal(s.telegramVerified, false);
+});
+
+test('getMe reports network failure without leaking credentials', async () => {
+  const s = {};
+  await step(s, async () => {}, { TELEGRAM_BOT_TOKEN: '12345:abcdefghijklmnopqrstuvwxy' }, tick, async () => { throw new TypeError('network failure'); });
+  assert.equal(s.telegramError, 'telegram-api-network');
+  assert.equal(s.telegramVerified, false);
+});
