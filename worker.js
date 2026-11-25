@@ -1,5 +1,5 @@
 // TrainBoard → Telegram. Read-only health route; no public actions or keys.
-const VERSION = '2.1.1';
+const VERSION = '2.1.2';
 const BOT = 'assistantbratishka_bot';
 const OWNER = 876976709;
 const PLAN = 'https://trainboard-freeman.patientbrownie8.chatgpt.site/api/schedule?stored=1';
@@ -351,23 +351,38 @@ async function pngCard(input) {
   return new Blob([new Uint8Array([137,80,78,71,13,10,26,10]),pngChunk('IHDR',header),pngChunk('PLTE',palette),pngChunk('IDAT',data),pngChunk('IEND',new Uint8Array())],{type:'image/png'});
 }
 
-function botApi(env, transport=fetch) {
+function telegramToken(env) {
   const secret=env.TELEGRAM_BOT_TOKEN;
-  if(typeof secret!=='string'||!/^\d{5,15}:[A-Za-z0-9_-]{20,100}$/.test(secret.trim())) throw new Fault('telegram-secret-missing');
+  if(typeof secret!=='string'||!secret.trim())throw new Fault('telegram-secret-missing');
+  const token=secret.trim();
+  if(!/^\d{5,15}:[A-Za-z0-9_-]{20,100}$/.test(token))throw new Fault('telegram-secret-invalid-format');
+  return token;
+}
+function botApi(env, transport=fetch) {
+  const token=telegramToken(env);
   return async (method, payload) => {
+    const reading=method==='getMe'||method==='getUpdates';
+    const failed=reason=>new Fault(reading?reason:'telegram-unknown-delivery');
     let res,p;
     try {
-      const form = payload instanceof FormData;
-      res = await transport(`https://api.telegram.org/bot${secret.trim()}/${method}`,{method:'POST',
-        headers:form?undefined:{'Content-Type':'application/json'}, body:form?payload:JSON.stringify(payload??{}),redirect:'error',signal:AbortSignal.timeout(10000)});
-      p=await res.json();
-    } catch { throw new Fault('telegram-unknown-delivery'); }
-    if(res.ok && p?.ok===true) return p.result;
-    if(res.status===429) throw new Fault('telegram-rate-limit',Math.min(900,Math.max(1,Number(p?.parameters?.retry_after)||5)));
-    if(res.status===409) throw new Fault('telegram-already-connected');
-    if(res.status===401) throw new Fault('telegram-secret-rejected');
-    if(res.status===400||res.status===403) throw new Fault('telegram-chat-rejected');
-    throw new Fault('telegram-unknown-delivery');
+      const form=payload instanceof FormData;
+      const opts={method:method==='getMe'?'GET':'POST',redirect:'error',signal:AbortSignal.timeout(10000)};
+      if(method!=='getMe'){
+        opts.headers=form?undefined:{'Content-Type':'application/json'};
+        opts.body=form?payload:JSON.stringify(payload??{});
+      }
+      res=await transport('https://api.telegram.org/bot'+token+'/'+method,opts);
+    } catch(e) {
+      throw failed(e?.name==='TimeoutError'||e?.name==='AbortError'?'telegram-api-timeout':'telegram-api-network');
+    }
+    try {p=await res.json();} catch {/* Never expose response bodies or token-bearing URLs. */}
+    if(res.ok&&p?.ok===true)return p.result;
+    const code=Number(p?.error_code)||res.status;
+    if(code===429)throw new Fault('telegram-rate-limit',Math.min(900,Math.max(1,Number(p?.parameters?.retry_after)||5)));
+    if(code===409)throw new Fault('telegram-already-connected');
+    if(code===401||(reading&&code===404))throw new Fault('telegram-secret-rejected');
+    if(code===400||code===403)throw new Fault('telegram-chat-rejected');
+    throw failed(res.status>=500?'telegram-api-server-error':p?'telegram-api-rejected':'telegram-api-invalid-response');
   };
 }
 const target = chat => chat.thread ? {chat_id:chat.id,message_thread_id:chat.thread} : {chat_id:chat.id};
@@ -682,7 +697,7 @@ async function health(env) {
   const result={service:'trainboard-alerts',version:VERSION,storage:typeof env.TRAINBOARD_STATE?.get==='function'?'KV':typeof env.TRAINBOARD_STATE?.prepare==='function'?'D1':'missing',status:'waiting-for-cron'};
   // No token, group ID, private messages, or mutable action is exposed.
   if(result.storage==='missing')return {...result,status:'state-binding-missing'};
-  try {botApi(env);}catch{return {...result,status:'telegram-secret-missing'};}
+  try {telegramToken(env);}catch(e){return {...result,status:safe(e,'telegram-secret-missing')};}
   try {
     const s=await readHealth(env.TRAINBOARD_STATE);
     const cronAge=Math.floor(Date.now()/1000)-(s.cronAt??0);
