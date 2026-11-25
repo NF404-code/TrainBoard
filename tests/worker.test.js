@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import worker, { parseCommand, projectPlan, match } from '../worker.js';
+import worker, { parseCommand, projectPlan, match, step } from '../worker.js';
 
 const OWNER = 876976709;
 const tick = 1795300000;
@@ -75,4 +75,25 @@ test('health endpoint hides secrets and chat ID', async () => {
   assert.doesNotMatch(body, /12345:abcdefgh/);
   assert.doesNotMatch(body, /1001234567/);
   assert.match(body, /trainboard-alerts/);
+});
+
+
+test('ongoing outage does not send a second card after midnight', async () => {
+  const now = Date.parse('2026-11-24T23:01:00Z') / 1000;
+  const s = { enabled: true, telegramVerified: true, day: '2026-11-24',
+    chat: { id: -1001234567 }, last: {}, planLast: {}, queue: [], problem: 'plan-unavailable' };
+  let sends = 0;
+  const transport = async url => {
+    const u = String(url);
+    if (u.endsWith('/getMe')) return Response.json({ ok: true, result: { username: 'assistantbratishka_bot' } });
+    if (u.endsWith('/getUpdates')) return Response.json({ ok: true, result: [] });
+    if (u.includes('/api/schedule')) return new Response('', { status: 503 });
+    if (u.endsWith('/sendPhoto')) sends++;
+    throw new Error('Unexpected request');
+  };
+  await step(s, async () => {}, { TELEGRAM_BOT_TOKEN: '12345:abcdefghijklmnopqrstuvwxy' }, now, transport);
+  assert.equal(s.day, '2026-11-25');
+  assert.equal(s.problem, 'plan-unavailable');
+  assert.equal(sends, 0);
+  assert.equal(s.queue.length, 0);
 });
