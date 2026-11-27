@@ -1,0 +1,33 @@
+name: Refresh TrainBoard schedule
+
+on:
+  schedule:
+    - cron: '2-59/5 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trainboard-live-schedule
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Check the live timetable and deliver push changes
+        run: |
+          node --input-type=module <<'NODE'
+          const response = await fetch(
+            'https://trainboard-freeman.patientbrownie8.chatgpt.site/api/schedule?refresh=1',
+            { signal: AbortSignal.timeout(45000) }
+          );
+          if (!response.ok) throw new Error('TrainBoard HTTP ' + response.status);
+          const result = await response.json();
+          if (result.status !== 'fresh' || result.snapshot?.realtimeStatus !== 'fresh') {
+            throw new Error('TrainBoard source stale: ' + (result.reason || result.snapshot?.realtimeStatus || 'unknown'));
+          }
+          console.log('Checked ' + result.snapshot.date + ' — ' + result.snapshot.trains.length + ' trains; push checked by TrainBoard server.');
+          NODE
